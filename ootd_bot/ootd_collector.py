@@ -60,7 +60,7 @@ async def archive(ctx, month, year, reaction: str = None):
     # Validate year
     try:
         year_num = int(year)
-        if year_num < 2000 or year_num > datetime.utcnow().year:
+        if year_num < 2023 or year_num > datetime.utcnow().year:
             raise ValueError
     except:
         await ctx.send(f"❌ Invalid year.\n{usage}")
@@ -86,11 +86,9 @@ async def archive(ctx, month, year, reaction: str = None):
     #(reaction: {reaction})...")
     
     all_messages = []
-    
     async for msg in ootd_channel.history(limit=None):
         all_messages.append(msg)
 
-    #all_messages = await ootd_channel.history(limit=None).flatten()
     filtered = [
         msg for msg in all_messages
         if msg.attachments and msg.created_at.year == year_num and msg.created_at.month == month_num
@@ -108,13 +106,6 @@ async def archive(ctx, month, year, reaction: str = None):
             days[day] = []
         days[day].append(msg)
 
-    # Top message per day
-    #top_per_day = []
-    #for day in sorted(days.keys()):
-    #    msgs = days[day]
-    #    top_msg = max(msgs, key=lambda m: sum(r.count for r in m.reactions))
-    #    top_per_day.append(top_msg)
-
     random_per_day = []
     for day, msgs in days.items():
         msgs_with_attachments = [m for m in msgs if m.attachments]
@@ -123,68 +114,140 @@ async def archive(ctx, month, year, reaction: str = None):
         random_msg = random.choice(msgs_with_attachments)
         random_per_day.append(random_msg)
 
-    # Create forum post
-    #thread_name = f"{datetime(year_num, month_num, 1).strftime('%B %Y')}"
-    #thread = await forum_channel.create_thread(
-    #    name=thread_name,
-    #    content=f"Random OOTD images for {thread_name}"
-    #)
-#########
+    #base_name = datetime(year_num, month_num, 1).strftime('%B %Y')
+    ###
+
     base_name = datetime(year_num, month_num, 1).strftime('%B %Y')
-    
-    # Fetch existing active + archived threads
+    MAX_VOL = 10
+
     existing_titles = []
-    
+
     # Active threads
     for thread in forum_channel.threads:
         existing_titles.append(thread.name)
-    
+
     # Archived threads
     async for thread in forum_channel.archived_threads(limit=None):
         existing_titles.append(thread.name)
-    
-    # Determine next volume number
+
+    # Find threads matching this month/year
     matching = [name for name in existing_titles if name.startswith(base_name)]
-    
-    if not matching:
+
+    volumes = []
+
+    for name in matching:
+        if name == base_name:
+            volumes.append(1)
+        elif "Vol." in name:
+            try:
+                vol_num = int(name.split("Vol.")[-1].strip())
+                volumes.append(vol_num)
+            except:
+                pass
+
+    if not volumes:
+        next_vol = 1
+    else:
+        highest_vol = max(volumes)
+
+        if highest_vol >= MAX_VOL:
+            await ctx.send(
+                f"❌ {base_name} already has Vol. {MAX_VOL}. Maximum reached."
+            )
+            return
+
+        next_vol = highest_vol + 1
+
+    if next_vol == 1:
         final_name = base_name
     else:
-        volumes = []
-        for name in matching:
-            if "Vol." in name:
-                try:
-                    vol_num = int(name.split("Vol.")[-1].strip())
-                    volumes.append(vol_num)
-                except:
-                    pass
-        next_vol = max(volumes) + 1 if volumes else 2
         final_name = f"{base_name} Vol. {next_vol}"
-    
-    # Create thread
+
     thread = await forum_channel.create_thread(
         name=final_name,
         content=f"Random OOTD images for {final_name}"
     )
-#########
+
     thread_obj = thread.thread
 
     await ctx.send(f"Forum post created: <#{thread_obj.id}>")
 
-    # Post images in forum thread
     for msg in random_per_day:
-        print(f"Message {msg.id} by {msg.author}: {len(msg.attachments)} attachments")
+        author_name = getattr(msg.author, "display_name", "Unknown User")
+        print(f"Message {msg.id} by {author_name}: {len(msg.attachments)} attachments")
+
         if not msg.attachments:
             print(f"No attachments found for message {msg.id}")
             continue
+
         for att in msg.attachments:
             try:
-                caption = f"{msg.created_at.strftime('%b %d')} by {msg.author.display_name}"
-                #| Reactions: {sum(r.count for r in msg.reactions)}"
+                caption = f"{msg.created_at.strftime('%b %d')} by {author_name}"
                 await thread_obj.send(content=caption, file=await att.to_file())
                 print(f"Sent {att.filename} from message {msg.id}")
             except Exception as e:
                 print(f"Failed to send {att.filename}: {e}")
 
     await ctx.send(f"Posted random images for {len(random_per_day)} days!")
+
+    ###
+    #
+    ## Fetch existing active + archived threads
+    #existing_titles = []
+    #
+    ## Active threads
+    #for thread in forum_channel.threads:
+    #    existing_titles.append(thread.name)
+    #
+    ## Archived threads
+    #async for thread in forum_channel.archived_threads(limit=None):
+    #    existing_titles.append(thread.name)
+    #
+    ## Determine next volume number
+    #matching = [name for name in existing_titles if name.startswith(base_name)]
+    #
+    #if not matching:
+    #    final_name = base_name
+    #else:
+    #    volumes = []
+    #    for name in matching:
+    #        if "Vol." in name:
+    #            try:
+    #                vol_num = int(name.split("Vol.")[-1].strip())
+    #                volumes.append(vol_num)
+    #            except:
+    #                pass
+    #    next_vol = max(volumes) + 1 if volumes else 2
+    #    final_name = f"{base_name} Vol. {next_vol}"
+    #
+    ## Create thread
+    #thread = await forum_channel.create_thread(
+    #    name=final_name,
+    #    content=f"Random OOTD images for {final_name}"
+    #)
+#
+    #thread_obj = thread.thread
+#
+    #await ctx.send(f"Forum post created: <#{thread_obj.id}>")
+
+    # Post images in forum thread
+    #for msg in random_per_day:
+    #    #print(f"Message {msg.id} by {msg.author}: {len(msg.attachments)} attachments")
+    #    author_name = getattr(msg.author, "display_name", "Unkown User")
+    #    print(f"Message {msg.id} by {author_name}: {len(msg.attachments)} attachments")
+    #    if not msg.attachments:
+    #        print(f"No attachments found for message {msg.id}")
+    #        continue
+    #    for att in msg.attachments:
+    #        try:
+    #            caption = f"{msg.created_at.strftime('%b %d')} by {author_name}"
+    #            #msg.author.display_name}"
+    #            #| Reactions: {sum(r.count for r in msg.reactions)}"
+    #            await thread_obj.send(content=caption, file=await att.to_file())
+    #            print(f"Sent {att.filename} from message {msg.id}")
+    #        except Exception as e:
+    #            print(f"Failed to send {att.filename}: {e}")
+#
+    #await ctx.send(f"Posted random images for {len(random_per_day)} days!")
 
 bot.run(TOKEN)
