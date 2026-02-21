@@ -1,0 +1,16 @@
+Bot to repost one random image from your ootd channel into a new forum post based on month/year input. 
+
+Channel where images are grabbed from must be configured to channel ID
+Channel where forum post is announced must be configured to channel ID
+Forum where thread is posted must be configured to channel ID
+
+Usage:
+!archive <month> <year>
+
+Command will only work in a specifc private channel so you can limit to whoever you want able to run this
+Has a limit to how many times a given month/year can be called (default 3)
+Will only post to a specified forum channel
+Can be configured to announce the new post in whatever channel (see above) 
+Can handle the needle bot auto thread thing fine
+Picks randomly from the month so not reaction based at all
+No local storage, makes a new post, posts the images then deleted from memory
