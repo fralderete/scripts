@@ -202,15 +202,20 @@ async def archive(ctx, month, year, reaction: str = None):
 
         await announcement_channel.send(embed=embed)
 
+        # 🔥 UPDATED SECTION — GROUP ATTACHMENTS PER MESSAGE
         for msg in random_per_day:
             author_name = getattr(msg.author, "display_name", "Unknown User")
+            caption = f"{msg.created_at.strftime('%b %d')} by {author_name}"
 
-            for att in msg.attachments:
-                try:
-                    caption = f"{msg.created_at.strftime('%b %d')} by {author_name}"
-                    await thread_obj.send(content=caption, file=await att.to_file())
-                except Exception as e:
-                    print(f"Failed to send {att.filename}: {e}")
+            try:
+                # Convert ALL attachments to files
+                files = [await att.to_file() for att in msg.attachments]
+
+                # Send them in ONE post
+                await thread_obj.send(content=caption, files=files)
+
+            except Exception as e:
+                print(f"Failed to send grouped attachments: {e}")
 
     finally:
         # Release guild lock
