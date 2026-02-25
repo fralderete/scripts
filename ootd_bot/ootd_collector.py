@@ -29,19 +29,19 @@ async def archive(ctx, month, year, reaction: str = None):
 
     # Prevent DM usage
     if ctx.guild is None:
-        await ctx.send("❌ This command can only be used in a server.")
+        await ctx.send("This command can only be used in a server.")
         return
 
     guild_id = ctx.guild.id
 
     # Ensure guild is configured
     if guild_id not in GUILD_CONFIG:
-        await ctx.send("❌ This server is not configured.")
+        await ctx.send("This server is not configured.")
         return
 
     # Per-guild lock check
     if archive_locks.get(guild_id, False):
-        await ctx.send("⚠️ Archive already running for this server. Please wait.")
+        await ctx.send("⚠️ Archive already running for this server. ⚠️ Please wait for the last one to finish before calling this command again.")
         return
 
     archive_locks[guild_id] = True
@@ -167,7 +167,7 @@ async def archive(ctx, month, year, reaction: str = None):
         if next_vol is None:
             await ctx.send(
                 f"{base_name} already has Vol. 1–{MAX_VOL}. "
-                f"Delete an old version to generate again."
+                f"Delete an old version of the given month/year to generate again."
             )
             return
 
@@ -202,7 +202,6 @@ async def archive(ctx, month, year, reaction: str = None):
 
         await announcement_channel.send(embed=embed)
 
-        # 🔥 UPDATED SECTION — GROUP ATTACHMENTS PER MESSAGE
         for msg in random_per_day:
             author_name = getattr(msg.author, "display_name", "Unknown User")
             caption = f"{msg.created_at.strftime('%b %d')} by {author_name}"
