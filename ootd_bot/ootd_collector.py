@@ -96,6 +96,11 @@ async def archive(ctx, month, year, reaction: str = None):
             await ctx.send(f"❌ Invalid year.\n{usage}")
             return
 
+        # Enforce May 2023 or later 
+        if year_num == 2023 and month_num < 5:
+            await ctx.send("❌ Archives can only be generated from May 2023 or later.")
+            return
+
         ootd_channel = bot.get_channel(OOTD_CHANNEL_ID)
         forum_channel = bot.get_channel(FORUM_CHANNEL_ID)
         announcement_channel = bot.get_channel(ANNOUNCEMENT_CHANNEL_ID)
