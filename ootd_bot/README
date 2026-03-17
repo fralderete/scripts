@@ -14,3 +14,5 @@ Can be configured to announce the new post in whatever channel (see above)
 Can handle the needle bot auto thread thing fine
 Picks randomly from the month so not reaction based at all
 No local storage, makes a new post, posts the images then deleted from memory
+
+Bot also reposts weekly OOTD posts from last week (Mon-Sun) in a post channel configurable by ID
