@@ -21,7 +21,7 @@ class OOTDBot(commands.Bot):
     async def setup_hook(self):
         await self.load_extension("components.archive")
         await self.load_extension("components.weekly_repost")
-
+        await self.load_extension("components.yearly_repost")
 
 bot = OOTDBot()
 

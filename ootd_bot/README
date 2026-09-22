@@ -1,18 +1,565 @@
-Bot to repost one random image from your ootd channel into a new forum post based on month/year input. 
+# OOTD Collector Bot
 
-Channel where images are grabbed from must be configured to channel ID
-Channel where forum post is announced must be configured to channel ID
-Forum where thread is posted must be configured to channel ID
+Discord bot for archiving and reposting OOTD posts.
 
-Usage:
+## Monthly Archive
+
+Bot reposts one random OOTD from each day of a requested month into a new forum post.
+
+The following channels must be configured by channel ID:
+
+- Channel where OOTD images are grabbed from
+- Channel where the forum post is announced
+- Forum where the archive thread is posted
+- Private bot command channel
+
+### Usage
+
+```text
 !archive <month> <year>
+```
 
-Command will only work in a specifc private channel so you can limit to whoever you want able to run this
-Has a limit to how many times a given month/year can be called (default 3)
-Will only post to a specified forum channel
-Can be configured to announce the new post in whatever channel (see above) 
-Can handle the needle bot auto thread thing fine
-Picks randomly from the month so not reaction based at all
-No local storage, makes a new post, posts the images then deleted from memory
+Example:
 
-Bot also reposts weekly OOTD posts from last week (Mon-Sun) in a post channel configurable by ID
+```text
+!archive january 2025
+```
+
+### Archive Behavior
+
+- Command only works in the configured private bot channel, allowing access to be restricted.
+- Has a limit on how many times a given month/year can be generated. Default is 3.
+- Only posts to the configured forum channel.
+- Can announce the newly generated archive in a separately configured channel.
+- Can handle Needle bot auto-thread behavior.
+- Selection is random and is not reaction based.
+- No permanent local image storage is used.
+- Images are retrieved from Discord, posted to the archive, and then discarded from memory.
+
+---
+
+## Weekly OOTD Repost
+
+The bot automatically reposts OOTDs from the previous week, Monday through Sunday.
+
+One OOTD is randomly selected from each day.
+
+The weekly repost destination is configured using `WEEKLYPOST_CHANNEL_ID`.
+
+The automatic weekly repost runs on Monday.
+
+### Manual Weekly Repost
+
+A weekly repost can also be triggered manually from the configured bot command channel:
+
+```text
+!weeklyrepost
+```
+
+This is useful for testing the weekly repost without waiting for the scheduled run.
+
+---
+
+## Yearly Best OOTDs
+
+The bot can generate a yearly collection of the most-reacted-to OOTDs.
+
+For each month:
+
+1. All eligible OOTD posts are scanned.
+2. Reaction counts from all emoji are added together.
+3. The top 3 posts for that month are selected.
+4. If a reaction tie affects the top 3, the post with more messages in its thread wins.
+5. If the thread-message counts are also tied, the winner is selected randomly.
+
+Only ties that can actually affect the monthly top 3 require thread-history checks.
+
+The monthly finalists are then ranked across the entire year.
+
+For a complete 12-month year, this produces a maximum of:
+
+```text
+3 posts x 12 months = 36 OOTDs
+```
+
+The highest-ranked images are posted in the main yearly post. Remaining images are placed in a thread attached to that post.
+
+Only the first image from each selected OOTD post is used.
+
+The yearly repost uses the same destination configured by:
+
+```text
+WEEKLYPOST_CHANNEL_ID
+```
+
+Configured excluded users are ignored.
+
+### Usage
+
+Either command can be used:
+
+```text
+!year 2025
+```
+
+or:
+
+```text
+!2025
+```
+
+The earliest supported year is 2023.
+
+For 2023, only May through December are searched because the archive begins in May 2023.
+
+For the current year, only months up through the current date are searched.
+
+Future years are rejected automatically.
+
+---
+
+# Raspberry Pi Bot Service
+
+The bot runs as a `systemd` service on the Raspberry Pi.
+
+This means the bot:
+
+- Starts automatically when the Raspberry Pi boots.
+- Does not require a tmux session.
+- Automatically restarts if the Python process fails.
+- Can be manually stopped for maintenance or code changes.
+- Writes Python/debug output to the system journal.
+
+Service name:
+
+```text
+ootd-bot
+```
+
+Bot directory:
+
+```text
+/home/fealdere/Desktop/repos/scripts/ootd_bot
+```
+
+Python virtual environment:
+
+```text
+/home/fealdere/Desktop/repos/scripts/ootd_bot/venv
+```
+
+Main Python file:
+
+```text
+/home/fealdere/Desktop/repos/scripts/ootd_bot/ootd_collector.py
+```
+
+---
+
+## Bot Service Commands
+
+### Check whether the bot is running
+
+```bash
+sudo systemctl status ootd-bot
+```
+
+Look for:
+
+```text
+Active: active (running)
+```
+
+Press `q` to exit the status screen.
+
+### Stop the bot
+
+```bash
+sudo systemctl stop ootd-bot
+```
+
+Use this before making substantial code changes.
+
+A deliberate stop will keep the bot stopped until it is manually started again or the Raspberry Pi is rebooted.
+
+### Start the bot
+
+```bash
+sudo systemctl start ootd-bot
+```
+
+### Restart the bot
+
+```bash
+sudo systemctl restart ootd-bot
+```
+
+Use this after changing Python code.
+
+### Enable automatic startup
+
+```bash
+sudo systemctl enable ootd-bot
+```
+
+The service is currently configured to start automatically at boot.
+
+### Disable automatic startup
+
+```bash
+sudo systemctl disable ootd-bot
+```
+
+This prevents automatic startup after future boots.
+
+It does not necessarily stop the currently running bot.
+
+To disable and stop it:
+
+```bash
+sudo systemctl disable ootd-bot
+sudo systemctl stop ootd-bot
+```
+
+---
+
+## Viewing Bot Logs
+
+Python output is written to the system journal.
+
+### Show the most recent 30 lines
+
+```bash
+sudo journalctl -u ootd-bot -n 30 --no-pager
+```
+
+### Watch the bot logs live
+
+```bash
+sudo journalctl -u ootd-bot -f
+```
+
+This behaves similarly to watching the old bot process inside tmux.
+
+Press:
+
+```text
+Ctrl+C
+```
+
+to stop watching the logs.
+
+### Show more history
+
+```bash
+sudo journalctl -u ootd-bot -n 100 --no-pager
+```
+
+### Show logs from the current boot
+
+```bash
+sudo journalctl -u ootd-bot -b --no-pager
+```
+
+A successful startup should contain output similar to:
+
+```text
+[DEBUG] Loading WeeklyRepostCog...
+[DEBUG] WeeklyRepostCog initialized
+[DEBUG] weekly_repost loop started
+[DEBUG] Loading YearlyRepostCog...
+[DEBUG] YearlyRepostCog initialized
+[DEBUG] Waiting for bot ready...
+[DEBUG] Bot ready, loop will begin
+Logged in as ootd collector#4144
+```
+
+---
+
+# Updating the Bot
+
+The normal code-update procedure is:
+
+### 1. Stop the bot
+
+```bash
+sudo systemctl stop ootd-bot
+```
+
+### 2. Edit the code
+
+For example:
+
+```bash
+vim components/yearly_repost.py
+```
+
+or:
+
+```bash
+vim components/weekly_repost.py
+```
+
+or:
+
+```bash
+vim ootd_collector.py
+```
+
+### 3. Check Python syntax
+
+From the bot directory:
+
+```bash
+python3 -m compileall -q -x 'venv' .
+```
+
+If this produces no output, the Python files passed the syntax check.
+
+If there is a syntax error, fix it before restarting the bot.
+
+### 4. Start the bot again
+
+```bash
+sudo systemctl start ootd-bot
+```
+
+### 5. Verify startup
+
+```bash
+sudo systemctl status ootd-bot
+```
+
+Then check the bot logs:
+
+```bash
+sudo journalctl -u ootd-bot -n 30 --no-pager
+```
+
+Look for:
+
+```text
+Logged in as ootd collector#4144
+```
+
+---
+
+## Quick Update Workflow
+
+For routine changes:
+
+```bash
+cd ~/Desktop/repos/scripts/ootd_bot
+
+sudo systemctl stop ootd-bot
+
+# Edit files
+vim components/yearly_repost.py
+
+# Check syntax
+python3 -m compileall -q -x 'venv' .
+
+# Start bot
+sudo systemctl start ootd-bot
+
+# Watch startup
+sudo journalctl -u ootd-bot -f
+```
+
+If the bot is already running and the changes are simple, it can also just be restarted after editing:
+
+```bash
+sudo systemctl restart ootd-bot
+```
+
+---
+
+# Editing the systemd Service
+
+The service configuration is located at:
+
+```text
+/etc/systemd/system/ootd-bot.service
+```
+
+Edit it with:
+
+```bash
+sudo vim /etc/systemd/system/ootd-bot.service
+```
+
+After changing the service file, systemd must reload its configuration:
+
+```bash
+sudo systemctl daemon-reload
+```
+
+Then restart the bot:
+
+```bash
+sudo systemctl restart ootd-bot
+```
+
+Changes to normal Python files do NOT require `daemon-reload`.
+
+Only changes to the systemd service file require it.
+
+---
+
+# Environment / Discord Token
+
+The Discord token is stored separately from the Python source code.
+
+Environment file:
+
+```text
+/home/fealdere/Desktop/repos/scripts/ootd_bot/.env
+```
+
+The file contains:
+
+```text
+OOTD_BOT_TOKEN=<token>
+```
+
+Do not commit this file to Git or share its contents.
+
+Permissions should be restricted:
+
+```bash
+chmod 600 .env
+```
+
+Check permissions with:
+
+```bash
+ls -l .env
+```
+
+Expected permissions:
+
+```text
+-rw-------
+```
+
+The bot reads the token in Python using:
+
+```python
+os.getenv("OOTD_BOT_TOKEN")
+```
+
+The systemd service loads the `.env` file when starting the bot.
+
+---
+
+# Manual Bot Startup
+
+The old manual startup command is available as:
+
+```bash
+runbot
+```
+
+`runbot` activates the bot virtual environment and starts `ootd_collector.py`.
+
+Normally, do NOT use `runbot` while the systemd service is running.
+
+Otherwise, two instances of the Discord bot may be running at the same time.
+
+If manual startup is needed for debugging:
+
+```bash
+sudo systemctl stop ootd-bot
+runbot
+```
+
+When finished, stop the manually running bot with:
+
+```text
+Ctrl+C
+```
+
+Then restore the systemd-managed bot:
+
+```bash
+sudo systemctl start ootd-bot
+```
+
+---
+
+# Reboot / Power Loss
+
+The bot is configured to start automatically after the Raspberry Pi boots.
+
+Reboot:
+
+```bash
+sudo reboot
+```
+
+After reconnecting to the Pi, do NOT run `runbot`.
+
+Check that systemd started the bot automatically:
+
+```bash
+sudo systemctl status ootd-bot
+```
+
+Then verify Discord login:
+
+```bash
+sudo journalctl -u ootd-bot -b --no-pager
+```
+
+Look for:
+
+```text
+Logged in as ootd collector#4144
+```
+
+If that appears after the reboot, the automatic startup completed successfully.
+
+---
+
+# Useful Command Cheat Sheet
+
+```bash
+# Bot status
+sudo systemctl status ootd-bot
+
+# Start bot
+sudo systemctl start ootd-bot
+
+# Stop bot
+sudo systemctl stop ootd-bot
+
+# Restart bot
+sudo systemctl restart ootd-bot
+
+# Live logs
+sudo journalctl -u ootd-bot -f
+
+# Last 30 log lines
+sudo journalctl -u ootd-bot -n 30 --no-pager
+
+# Logs from current boot
+sudo journalctl -u ootd-bot -b --no-pager
+
+# Check Python syntax
+python3 -m compileall -q -x 'venv' .
+
+# Edit systemd service
+sudo vim /etc/systemd/system/ootd-bot.service
+
+# Reload systemd after editing service file
+sudo systemctl daemon-reload
+
+# Enable automatic startup
+sudo systemctl enable ootd-bot
+
+# Disable automatic startup
+sudo systemctl disable ootd-bot
+
+# Reboot Raspberry Pi
+sudo reboot
+```
