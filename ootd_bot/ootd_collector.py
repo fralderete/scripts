@@ -22,6 +22,7 @@ class OOTDBot(commands.Bot):
         await self.load_extension("components.archive")
         await self.load_extension("components.weekly_repost")
         await self.load_extension("components.yearly_repost")
+        await self.load_extension("components.seasonal_repost")
 
 bot = OOTDBot()
 
