@@ -11,7 +11,7 @@ from channels import GUILD_CONFIG
 
 
 MAX_FILES_PER_MESSAGE = 10
-TOP_POOL_SIZE = 200
+TOP_POOL_SIZE = 500
 
 SEASONS = {
     "spring": {3, 4, 5},
@@ -147,8 +147,8 @@ class SeasonalRepostCog(commands.Cog):
     # ---------------------------------------------------------
     # COLLECT SEASON POSTS
     #
-    # Only queries the relevant three calendar months for each
-    # year instead of scanning the entire OOTD archive.
+    # Searches only the relevant season months across all
+    # available years.
     #
     # Archive begins May 2023.
     # ---------------------------------------------------------
@@ -191,7 +191,7 @@ class SeasonalRepostCog(commands.Cog):
 
             for month in sorted(season_months):
 
-                # Archive starts May 2023.
+                # Archive begins May 2023.
                 if year == 2023 and month < 5:
                     continue
 
@@ -221,7 +221,8 @@ class SeasonalRepostCog(commands.Cog):
                         tzinfo=timezone.utc
                     )
 
-                # Current month only searches through now.
+                # If this is the current month,
+                # search only through the current time.
                 if end_dt > now_utc:
                     end_dt = now_utc
 
@@ -284,13 +285,13 @@ class SeasonalRepostCog(commands.Cog):
         return posts
 
     # ---------------------------------------------------------
-    # SELECT TOP 50
+    # SELECT TOP 200
     #
     # Primary ranking:
     #   total reaction count
     #
-    # Thread counts are only fetched when a reaction tie
-    # crosses the top-50 cutoff.
+    # Thread activity is only checked when a reaction tie
+    # crosses the top-200 cutoff.
     #
     # Tie order:
     #   reactions
@@ -337,13 +338,12 @@ class SeasonalRepostCog(commands.Cog):
                 f"{remaining} pool spot(s) remaining"
             )
 
-            # Whole group fits.
-            # No reason to query thread activity.
+            # Whole group fits inside top 200.
             if len(group) <= remaining:
                 selected.extend(group)
                 continue
 
-            # This tie crosses the cutoff.
+            # Reaction tie crosses the top-200 cutoff.
             print(
                 f"[DEBUG] {len(group)}-way tie at "
                 f"{score} reactions affects the "
@@ -389,6 +389,40 @@ class SeasonalRepostCog(commands.Cog):
         return selected[:pool_size]
 
     # ---------------------------------------------------------
+    # RANDOMLY SELECT UP TO 10 UNIQUE USERS
+    #
+    # Multiple posts from one user can exist in the top 200,
+    # but the final repost can contain only one photo from
+    # each Discord user.
+    # ---------------------------------------------------------
+
+    def select_unique_users(
+        self,
+        top_pool,
+        max_users=MAX_FILES_PER_MESSAGE
+    ):
+        shuffled_pool = top_pool.copy()
+        random.shuffle(shuffled_pool)
+
+        selected = []
+        selected_user_ids = set()
+
+        for post in shuffled_pool:
+            msg = post["message"]
+            user_id = msg.author.id
+
+            if user_id in selected_user_ids:
+                continue
+
+            selected.append(post)
+            selected_user_ids.add(user_id)
+
+            if len(selected) >= max_users:
+                break
+
+        return selected
+
+    # ---------------------------------------------------------
     # GENERATE SEASONAL REPOST
     # ---------------------------------------------------------
 
@@ -410,9 +444,7 @@ class SeasonalRepostCog(commands.Cog):
         guild_id = ctx.guild.id
 
         if guild_id not in self.guild_locks:
-            self.guild_locks[guild_id] = (
-                asyncio.Lock()
-            )
+            self.guild_locks[guild_id] = asyncio.Lock()
 
         lock = self.guild_locks[guild_id]
 
@@ -450,7 +482,7 @@ class SeasonalRepostCog(commands.Cog):
             )
 
             # -------------------------------------------------
-            # COLLECT ALL ELIGIBLE POSTS
+            # COLLECT POSTS
             # -------------------------------------------------
 
             posts = await self.collect_season_posts(
@@ -466,7 +498,7 @@ class SeasonalRepostCog(commands.Cog):
                 return
 
             # -------------------------------------------------
-            # BUILD TOP-50 POOL
+            # BUILD TOP-200 POOL
             # -------------------------------------------------
 
             top_pool = await self.select_top_pool(
@@ -494,28 +526,30 @@ class SeasonalRepostCog(commands.Cog):
                 print(
                     f"[DEBUG] Pool #{index}: "
                     f"message={msg.id}, "
+                    f"user={msg.author.id}, "
                     f"reactions={post['reactions']}, "
                     f"date={msg.created_at.date()}"
                 )
 
             # -------------------------------------------------
-            # RANDOMLY SELECT 10 FROM TOP 50
+            # SELECT 10 UNIQUE USERS
             # -------------------------------------------------
 
-            sample_size = min(
-                MAX_FILES_PER_MESSAGE,
-                len(top_pool)
+            selected = self.select_unique_users(
+                top_pool,
+                MAX_FILES_PER_MESSAGE
             )
 
-            selected = random.sample(
-                top_pool,
-                sample_size
-            )
+            if not selected:
+                await ctx.send(
+                    "Could not select any seasonal OOTDs."
+                )
+                return
 
             print(
                 f"[DEBUG] Randomly selected "
-                f"{sample_size} posts from top "
-                f"{len(top_pool)}"
+                f"{len(selected)} unique users from "
+                f"top {len(top_pool)} posts"
             )
 
             for index, post in enumerate(
@@ -527,6 +561,7 @@ class SeasonalRepostCog(commands.Cog):
                 print(
                     f"[DEBUG] Selected #{index}: "
                     f"message={msg.id}, "
+                    f"user={msg.author.id}, "
                     f"reactions={post['reactions']}, "
                     f"date={msg.created_at.date()}"
                 )
@@ -559,10 +594,13 @@ class SeasonalRepostCog(commands.Cog):
                 return
 
             # -------------------------------------------------
-            # SEND MAIN CHANNEL POST
+            # FINAL CHANNEL POST
             #
-            # The images are attached DIRECTLY to this message.
-            # This same message becomes the parent of the thread.
+            # The ONLY text in the final repost is:
+            #
+            #   Fall OOTDs from across the years:
+            #
+            # plus the 10 attached images.
             # -------------------------------------------------
 
             try:
@@ -573,8 +611,8 @@ class SeasonalRepostCog(commands.Cog):
 
                 repost_msg = await repost_channel.send(
                     content=(
-                        f"{season.title()} OOTD Repost\n"
-                        f"Fits from {season} OOTDs across the years."
+                        f"{season.title()} OOTDs "
+                        f"from across the years:"
                     ),
                     files=prepared
                 )
@@ -596,9 +634,9 @@ class SeasonalRepostCog(commands.Cog):
                 return
 
             # -------------------------------------------------
-            # CREATE THREAD FROM THE IMAGE POST
+            # CREATE DISCUSSION THREAD FROM THE IMAGE POST
             #
-            # Nothing is automatically sent inside the thread.
+            # Nothing is automatically posted inside it.
             # -------------------------------------------------
 
             try:

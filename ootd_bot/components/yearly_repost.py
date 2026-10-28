@@ -12,6 +12,15 @@ from channels import GUILD_CONFIG
 
 CENTRAL_TZ = ZoneInfo("America/Chicago")
 MAX_FILES_PER_MESSAGE = 10
+TOP_POSTS_PER_MONTH = 20
+PER_SEASON = 3
+FINAL_IMAGE_COUNT = 10
+SEASON_MONTHS = {
+    "Spring": (3, 4, 5),
+    "Summer": (6, 7, 8),
+    "Fall": (9, 10, 11),
+    "Winter": (12, 1, 2),
+}
 
 
 class YearlyRepostCog(commands.Cog):
@@ -300,34 +309,20 @@ class YearlyRepostCog(commands.Cog):
         return resolved
 
     # ---------------------------------------------------------
-    # SELECT TOP 3 FOR A MONTH
+    # SELECT TOP POSTS FOR A MONTH
     #
     # OPTIMIZED:
     #
     # We DO NOT resolve every reaction tie in the month.
     #
     # We work downward from the highest reaction score
-    # until three positions are filled.
+    # until TOP_POSTS_PER_MONTH positions are filled.
     #
-    # Example:
-    #
-    # 50
-    # 45
-    # 41
-    # 41
-    # 41
-    # 40
-    # 40
-    #
-    # 50 and 45 automatically win.
-    #
-    # Only the three posts at 41 need thread checks because
-    # they are competing for the final available slot.
-    #
-    # Nothing at 40 or below is examined further.
+    # Thread activity is checked only when a tied group
+    # straddles the cutoff for the available monthly slots.
     # ---------------------------------------------------------
 
-    async def select_monthly_top_three(self, posts):
+    async def select_monthly_top_posts(self, posts):
 
         if not posts:
             return []
@@ -351,15 +346,15 @@ class YearlyRepostCog(commands.Cog):
 
         for reaction_score in reaction_scores:
 
-            # Already filled all three spots.
-            if len(winners) >= 3:
+            # Already filled all monthly spots.
+            if len(winners) >= TOP_POSTS_PER_MONTH:
                 break
 
             group = reaction_groups[
                 reaction_score
             ]
 
-            spots_remaining = 3 - len(winners)
+            spots_remaining = TOP_POSTS_PER_MONTH - len(winners)
 
             print(
                 f"[DEBUG] Considering reaction score "
@@ -398,12 +393,12 @@ class YearlyRepostCog(commands.Cog):
 
             break
 
-        return winners[:3]
+        return winners[:TOP_POSTS_PER_MONTH]
 
     # ---------------------------------------------------------
     # RANK THE YEARLY FINALISTS
     #
-    # At most 36 posts reach this point.
+    # At most 12 * TOP_POSTS_PER_MONTH posts reach this point.
     #
     # Here we do want a complete ordering because:
     #
@@ -520,7 +515,7 @@ class YearlyRepostCog(commands.Cog):
         finalists = []
 
         # -----------------------------------------------------
-        # TOP THREE FROM EACH MONTH
+        # TOP POSTS FROM EACH MONTH
         # -----------------------------------------------------
 
         for month in range(1, 13):
@@ -544,7 +539,7 @@ class YearlyRepostCog(commands.Cog):
                 continue
 
             monthly_top = (
-                await self.select_monthly_top_three(
+                await self.select_monthly_top_posts(
                     posts
                 )
             )
@@ -588,223 +583,89 @@ class YearlyRepostCog(commands.Cog):
             f"monthly finalists"
         )
 
-        # -----------------------------------------------------
-        # RANK THE FINALISTS ACROSS THE WHOLE YEAR
-        # -----------------------------------------------------
+        # Randomly pick three posts per season, with globally unique authors.
+        # Winter refers to December, January and February OF THE REQUESTED YEAR.
+        # Randomizing season order avoids always giving the same season
+        # first choice of authors who qualify in multiple seasons.
+        seasons = list(SEASON_MONTHS.items())
+        random.shuffle(seasons)
+        seen_authors = set()
+        seasonal_picks = []
+        seasonal_counts = {}
 
-        finalists = (
-            await self.rank_yearly_finalists(
-                finalists
-            )
-        )
+        for season_name, season_months in seasons:
+            candidates = [
+                post for post in finalists
+                if post["month"] in season_months
+            ]
+            random.shuffle(candidates)
+            chosen = []
+            for post in candidates:
+                author_id = post["message"].author.id
+                if author_id in seen_authors:
+                    continue
+                seen_authors.add(author_id)
+                chosen.append(post)
+                if len(chosen) == PER_SEASON:
+                    break
+            seasonal_picks.extend(chosen)
+            seasonal_counts[season_name] = len(chosen)
+            print(f"[DEBUG] {season_name}: picked {len(chosen)} unique users")
 
-        print(
-            "[DEBUG] Final yearly ranking complete"
-        )
+        if not seasonal_picks:
+            await ctx.send("No eligible seasonal OOTDs found.")
+            return
 
-        # Show final ranking in terminal.
-        for position, finalist in enumerate(
-            finalists,
-            start=1
-        ):
+        # Rank the 12 seasonal selections by reactions, using thread
+        # activity and then random choice to resolve ties.
+        ranked = await self.rank_yearly_finalists(seasonal_picks)
+        selected = ranked[:FINAL_IMAGE_COUNT]
 
-            print(
-                f"[DEBUG] Year rank #{position}: "
-                f"message={finalist['message'].id}, "
-                f"reactions={finalist['reactions']}, "
-                f"month={finalist['month']}"
-            )
+        print(f"[DEBUG] Season picks: {seasonal_counts}")
+        print(f"[DEBUG] Selected {len(selected)} of {len(ranked)} finalists")
 
-        # -----------------------------------------------------
-        # PREPARE IMAGES
-        #
-        # First attachment only.
-        # -----------------------------------------------------
-
+        # Prepare only up to 10 photos, one attachment per post.
+        # Attempt the next-ranked of the 12 if a file fails processing.
         prepared = []
-
-        for position, finalist in enumerate(
-            finalists,
-            start=1
-        ):
-
+        for finalist in ranked:
+            if len(prepared) >= FINAL_IMAGE_COUNT:
+                break
             msg = finalist["message"]
-
-            attachment = msg.attachments[0]
-
-            print(
-                f"[DEBUG] Preparing yearly rank "
-                f"#{position}: "
-                f"message={msg.id}, "
-                f"reactions={finalist['reactions']}"
-            )
-
             try:
-
-                file = await self.compress_to_target(
-                    attachment
-                )
-
-                prepared.append({
-                    "file": file,
-                    "reactions":
-                        finalist["reactions"],
-                    "message": msg,
-                    "month":
-                        finalist["month"]
-                })
-
+                file = await self.compress_to_target(msg.attachments[0])
+                prepared.append(file)
             except Exception as e:
-
-                print(
-                    f"[ERROR] Failed to prepare "
-                    f"message {msg.id}: {e}"
-                )
+                print(f"[ERROR] Failed to prepare message {msg.id}: {e}")
 
         if not prepared:
-
-            await ctx.send(
-                "No images could be prepared."
-            )
-
+            await ctx.send("No images could be prepared.")
             return
 
-        print(
-            f"[DEBUG] Prepared {len(prepared)} "
-            f"yearly images"
-        )
-
-        # -----------------------------------------------------
-        # FIRST POST
-        #
-        # Up to 10 highest-ranked images.
-        # -----------------------------------------------------
-
-        first_batch = prepared[
-            :MAX_FILES_PER_MESSAGE
-        ]
-
-        first_files = [
-            item["file"]
-            for item in first_batch
-        ]
-
+        # Attach the photos to the main channel message so they appear
+        # directly in the channel. Create a discussion thread from that post.
         try:
-
-            print(
-                f"[DEBUG] Sending first yearly batch "
-                f"with {len(first_files)} images"
-            )
-
             header_msg = await yearly_channel.send(
-                content=(
-                    f"Top OOTDs of {year}\n"
-                    f"Top {len(prepared)} fits selected "
-                    f"from the year's monthly leaders."
-                ),
-                files=first_files
+                content=f"OOTD posts from {year}",
+                files=prepared
             )
-
-            print(
-                f"[DEBUG] Yearly header sent: "
-                f"{header_msg.id}"
-            )
-
         except Exception as e:
-
-            print(
-                f"[ERROR] Failed to send yearly header: "
-                f"{e}"
-            )
-
-            await ctx.send(
-                "Failed to send yearly repost."
-            )
-
+            print(f"[ERROR] Failed to publish yearly photos: {e}")
+            await ctx.send("Failed to publish yearly repost photos.")
             return
-
-        # -----------------------------------------------------
-        # CREATE THREAD
-        # -----------------------------------------------------
 
         try:
-
-            print(
-                "[DEBUG] Creating yearly thread..."
-            )
-
-            thread = await header_msg.create_thread(
-                name=f"Top OOTDs of {year}"
-            )
-
-            print(
-                f"[DEBUG] Yearly thread created: "
-                f"{thread.id}"
-            )
-
+            await header_msg.create_thread(name=f"OOTD posts from {year}")
         except Exception as e:
-
-            print(
-                f"[ERROR] Failed to create yearly thread: "
-                f"{e}"
-            )
-
-            await ctx.send(
-                "Main post created, but thread creation "
-                "failed."
-            )
-
+            print(f"[WARN] Yearly photos posted, but thread creation failed: {e}")
+            await ctx.send("Yearly photos posted, but the thread could not be created.")
             return
-
-        # -----------------------------------------------------
-        # REMAINING IMAGES
-        #
-        # Up to 10 images per thread message.
-        # -----------------------------------------------------
-
-        remaining = prepared[
-            MAX_FILES_PER_MESSAGE:
-        ]
-
-        for i in range(
-            0,
-            len(remaining),
-            MAX_FILES_PER_MESSAGE
-        ):
-
-            batch = remaining[
-                i:i + MAX_FILES_PER_MESSAGE
-            ]
-
-            batch_files = [
-                item["file"]
-                for item in batch
-            ]
-
-            try:
-
-                print(
-                    f"[DEBUG] Sending thread batch "
-                    f"with {len(batch_files)} images"
-                )
-
-                await thread.send(
-                    files=batch_files
-                )
-
-            except Exception as e:
-
-                print(
-                    f"[ERROR] Failed to send yearly "
-                    f"thread batch: {e}"
-                )
 
         # -----------------------------------------------------
         # COMPLETE
         # -----------------------------------------------------
 
         await ctx.send(
-            f"Top OOTDs of {year} posted."
+            f"OOTD posts from {year} posted."
         )
 
         print(
